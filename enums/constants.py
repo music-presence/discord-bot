@@ -8,6 +8,7 @@ MIN_RETENTION_UPDATE_INTERVAL = 60 * 60 * 24  # 24 hours (in seconds)
 
 ROLE_BETA_TESTER = 1349699182968967219
 ROLES_OS = [1295480990722035752, 1295480950242676737, 1295480841987821628]
+ROLES_USE_MACROS = ["Moderator"]
 
 HELP_URL_INSTALL = "https://github.com/ungive/discord-music-presence/blob/master/documentation/installation-instructions.md"
 HELP_URL_TROUBLESHOOTING = "https://github.com/ungive/discord-music-presence/blob/master/documentation/troubleshooting.md"
