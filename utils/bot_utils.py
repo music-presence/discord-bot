@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 import aiohttp
 import pickledb
 import discord
@@ -34,9 +35,11 @@ class BotUtils:
     def __init__(
         self,
         client: discord.Client,
+        macros_db: sqlite3.Connection,
         settings: pickledb.PickleDB,
         tree: discord.app_commands.CommandTree,
     ):
+        self.macros_db = macros_db
         self.client = client
         self.settings = settings
         self.tree = tree

@@ -1,3 +1,4 @@
+import math
 import os
 import dotenv
 import dataclasses
@@ -5,14 +6,28 @@ import discord
 
 import enums
 import objects
+from objects.macro_embed import MacroEmbed
+from objects.macro_creator_modal import MacroCreate, MacroEdit
 import utils
 
 from time import time
 from typing import Optional
 from discord import app_commands as discord_command
 
-from enums.constants import HELP_TROUBLESHOOTING_URLS, ROLE_BETA_TESTER, ROLES_OS
-from utils.init_database import load_database
+from enums.constants import (
+    HELP_TROUBLESHOOTING_URLS,
+    ROLE_BETA_TESTER,
+    ROLES_OS,
+    ROLES_USE_MACROS,
+)
+from utils.init_database import load_macros_database, load_settings_database
+from utils.macros_database import (
+    delete_macro,
+    get_macro,
+    macro_names,
+    macro_search,
+    macros_list,
+)
 
 # Required permissions:
 # - Manage Roles (required to set and remove roles from members)
@@ -24,7 +39,8 @@ from utils.init_database import load_database
 # ------------------------------------- GLOBAL INITS
 dotenv.load_dotenv()
 
-settings = load_database()
+settings = load_settings_database()
+macros = load_macros_database("macros.db")
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -40,7 +56,7 @@ client = discord.Client(intents=intents)
 
 tree = discord_command.CommandTree(client)
 
-bot_utils = utils.BotUtils(client, settings, tree)
+bot_utils = utils.BotUtils(client, macros, settings, tree)
 
 
 # ------------------------------------- EVENTS
@@ -433,6 +449,116 @@ async def command_tester_coverage(interaction: discord.Interaction):
     embed = bot_utils.tester_coverage_make_embed(beta_tester_role, os_roles, coverage)
 
     await interaction.response.send_message(embed=embed)
+
+
+@tree.command(
+    name=enums.Command.MACRO,
+    description=enums.Command.MACRO.description(),
+)
+async def macro(
+    interaction: discord.Interaction, name: str, mention: discord.Member | None
+):
+    macro = get_macro(bot_utils.macros_db, name)
+
+    if macro is not None:
+        message_mention = f"<@{mention.id}>" if mention is not None else None
+
+        await interaction.response.defer(thinking=False)
+        await interaction.delete_original_response()
+
+        await interaction.channel.send(
+            content=message_mention, embed=MacroEmbed(macro).show_embed()
+        )
+    else:
+        await interaction.response.send_message(
+            f"Macro with name `{name}` not found.", ephemeral=True
+        )
+
+
+macros_group = discord_command.Group(
+    name=enums.Command.MACROS,
+    description=enums.Command.MACROS.description(),
+)
+
+
+@macros_group.command(
+    name=enums.Command.MACROS_CREATE,
+    description=enums.Command.MACROS_CREATE.description(),
+)
+async def create(interaction: discord.Interaction, name: str):
+    if get_macro(bot_utils.macros_db, name) is None:
+        await interaction.response.send_modal(
+            MacroCreate(macro_name=name, macros_db=bot_utils.macros_db)
+        )
+    else:
+        await interaction.response.send_message(
+            f"Macro with name `{name}` already exists!", ephemeral=True
+        )
+
+
+@macros_group.command(
+    name=enums.Command.MACROS_EDIT,
+    description=enums.Command.MACROS_EDIT.description(),
+)
+async def edit(interaction: discord.Interaction, name: str):
+    macro = get_macro(bot_utils.macros_db, name)
+
+    await interaction.response.send_modal(
+        MacroEdit(macro=macro, macros_db=bot_utils.macros_db)
+    )
+
+
+# Works for now, might be a problem in the future
+@macros_group.command(
+    name=enums.Command.MACROS_LIST,
+    description=enums.Command.MACROS_LIST.description(),
+)
+async def list_macros(interaction: discord.Interaction):
+    macros = macros_list(bot_utils.macros_db)
+    message_text = "There are no macros!"
+
+    if macros is not None:
+        message_text = "# List of macros:\n"
+        for macro in macros:
+            message_text += f"- `{macro.name}` by {client.get_user(macro.creator).name} - last edited <t:{math.floor(macro.date_edited)}:f>\n"
+
+    await interaction.response.send_message(message_text, ephemeral=True)
+
+
+@macros_group.command(
+    name=enums.Command.MACROS_DELETE,
+    description=enums.Command.MACROS_DELETE.description(),
+)
+async def remove(interaction: discord.Interaction, name: str):
+    if delete_macro(bot_utils.macros_db, name) == 1:
+        await interaction.response.send_message(
+            f"Macro `{name}` removed", ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            f"Macro `{name}` either not removed or doesn't exist", ephemeral=True
+        )
+
+
+@edit.autocomplete("name")
+@remove.autocomplete("name")
+@macro.autocomplete("name")
+async def macro_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[discord_command.Choice[str]]:
+    if current is None or current == "":
+        return [
+            discord_command.Choice(name=macro_name[0], value=macro_name[0])
+            for macro_name in macro_names(bot_utils.macros_db)
+        ]
+    else:
+        return [
+            discord_command.Choice(name=macro_name[0], value=macro_name[0])
+            for macro_name in macro_search(bot_utils.macros_db, current)
+        ]
+
+
+tree.add_command(macros_group)
 
 
 client.run(os.getenv("BOT_TOKEN"))

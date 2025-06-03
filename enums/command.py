@@ -10,6 +10,12 @@ class Command(StrEnum):
     LOGS = "logs"
     HELP = "help"
     TESTER_COVERAGE = "testers-coverage"
+    MACRO = "macro"
+    MACROS = "macros"
+    MACROS_CREATE = "create"
+    MACROS_EDIT = "edit"
+    MACROS_LIST = "list"
+    MACROS_DELETE = "delete"
 
     def description(self) -> str:
         return {
@@ -21,4 +27,10 @@ class Command(StrEnum):
             self.LOGS: "Tells you where the Music Presence logs are located",
             self.HELP: "Use this command if you need help with Music Presence",
             self.TESTER_COVERAGE: "Report the OS coverage among beta testers.",
+            self.MACRO: "Shows a macro, and optionally mentions someone.",
+            self.MACROS: "Create, edit, and delete macros to be reused in troubleshooting.",
+            self.MACROS_CREATE: "Creates a new macro.",
+            self.MACROS_EDIT: "Edits an existing macro.",
+            self.MACROS_LIST: "Lists all created macros.",
+            self.MACROS_DELETE: "Deletes a macro.",
         }[self]
