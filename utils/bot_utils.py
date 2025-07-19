@@ -327,7 +327,145 @@ class BotUtils:
             for macro_name in self.macros_cache
             if query.lower() in str(macro_name).lower()
         ]
+        
+    def get_platform_names(self, guild: discord.Guild) -> list[str]:
+        guild_id = str(guild.id)
+        if not self.settings.dexists(
+            enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id
+        ):
+            return []
+        platforms = self.settings.dget(
+            enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id
+        )
+        return list(platforms.keys())
 
+    def search_platforms(self, guild: discord.Guild, query: str) -> list[str]:
+        return [
+            name
+            for name in self.get_platform_names(guild)
+            if query.lower() in name.lower()
+        ]   
+    def get_sponsor_status(self, member: discord.Member):
+        guild_id = str(member.guild.id)
+
+        if not self.settings.dexists(enums.SettingsKeys.SPONSOR_ROLES, guild_id):
+            return None
+
+        roles_cfg = self.settings.dget(
+            enums.SettingsKeys.SPONSOR_ROLES, guild_id
+        )
+
+        status = None
+        monthly_id = roles_cfg.get("monthly")
+        one_time_id = roles_cfg.get("normal")
+
+        if monthly_id:
+            role = member.guild.get_role(int(monthly_id))
+            if role and role in member.roles:
+                status = "subscription"
+
+        if status is None and one_time_id:
+            role = member.guild.get_role(int(one_time_id))
+            if role and role in member.roles:
+                status = "one-time"
+
+        if status is None:
+            return None
+
+        platform_entries = []
+
+        if self.settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id):
+            role_map = self.settings.dget(
+                enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id
+            )
+            for role_id_str, name in role_map.items():
+                role = member.guild.get_role(int(role_id_str))
+                if role and role in member.roles:
+                    emoji = None
+                    if self.settings.dexists(
+                        enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id
+                    ):
+                        platforms = self.settings.dget(
+                            enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id
+                        )
+                        emoji = platforms.get(name)
+                    platform_entries.append({
+                        "name": name,
+                        "emoji": emoji.get("emoji") if isinstance(emoji, dict) else emoji,
+                        "url": emoji.get("url") if isinstance(emoji, dict) else None
+                    })
+
+        return {
+            "type": status,
+            "platforms": platform_entries
+        }
+    def get_platform_overview(self, guild: discord.Guild) -> str | None:
+        guild_id = str(guild.id)
+
+        if not self.settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id):
+            return None
+
+        platforms = self.settings.dget(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id)
+        role_map = (
+            self.settings.dget(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id)
+            if self.settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id)
+            else {}
+        )
+
+        lines = []
+        for name, data in platforms.items():
+            # Handle legacy string entries
+            if isinstance(data, str):
+                emoji = data
+                url = None
+            else:
+                emoji = data.get("emoji", "")
+                url = data.get("url")
+
+            role_ids = [
+                int(rid)
+                for rid, plat in role_map.items()
+                if plat == name and guild.get_role(int(rid)) is not None
+            ]
+            role_mentions = ", ".join(f"<@&{rid}>" for rid in role_ids) if role_ids else ""
+
+            line = f"- {emoji} `{name}`"
+            if url:
+                line += f" ([link]({url}))"
+            if role_mentions:
+                line += f" -> {role_mentions}"
+
+            lines.append(line)
+
+        return "\n".join(lines) if lines else None
+
+    def get_sponsor_list(self, guild: discord.Guild) -> str | None:
+        guild_id = str(guild.id)
+
+        if not self.settings.dexists(enums.SettingsKeys.SPONSOR_ROLES, guild_id):
+            return None
+
+        roles_cfg = self.settings.dget(enums.SettingsKeys.SPONSOR_ROLES, guild_id)
+        monthly_role = (
+            guild.get_role(int(roles_cfg.get("monthly"))) if roles_cfg.get("monthly") else None
+        )
+        normal_role = (
+            guild.get_role(int(roles_cfg.get("normal"))) if roles_cfg.get("normal") else None
+        )
+
+        lines = []
+        if monthly_role is not None:
+            members = [m.mention for m in monthly_role.members if not m.bot]
+            value = ", ".join(members) if members else "None"
+            lines.append(f"**Monthly** ({len(members)}): {value}")
+
+        if normal_role is not None:
+            members = [m.mention for m in normal_role.members if not m.bot]
+            value = ", ".join(members) if members else "None"
+            lines.append(f"**One Time** ({len(members)}): {value}")
+
+        return "\n".join(lines) if lines else None
+    
     async def autolog(self, message: discord.Message):
         is_channel_observed = self.settings.lexists(
             enums.SettingsKeys.AUTOLOG, f"{message.guild.id}:{message.channel.id}"

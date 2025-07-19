@@ -316,6 +316,81 @@ async def command_joined_stats(
 
     await interaction.response.send_message(embed=embed)
 
+from enums.constants import ROLE_BETA_TESTER, ROLES_OS
+
+@tree.command(name=enums.Command.INFO, description=enums.Command.INFO.description())
+@discord_command.describe(member="The member to check (leave empty to check yourself)")
+async def command_info(interaction: discord.Interaction, member: discord.Member = None):
+    target_member = member or interaction.user
+    guild = interaction.guild
+    members_by_join_date = sorted(
+        [m for m in guild.members if not m.bot],
+        key=lambda m: m.joined_at or discord.utils.utcnow(),
+    )
+
+    try:
+        member_index = members_by_join_date.index(target_member)
+    except ValueError:
+        await interaction.response.send_message(
+            f"❌ Could not find {'you' if member is None else target_member.display_name} in the member list.",
+            ephemeral=True,
+        )
+        return
+
+    member_number = member_index + 1
+    total_members = len(members_by_join_date)
+    join_date = target_member.joined_at.strftime("%B %d, %Y") if target_member.joined_at else "Unknown"
+
+    # --- Join Info ---
+    
+    embed = discord.Embed(
+        title="Member Information",
+        color=0xE6DFD0,
+        description=f"{'You' if member is None else f'**{target_member.display_name}**'} joined this server on **{join_date}**"
+    )
+    embed.add_field(name="Member Number", value=f"#{member_number} out of {total_members}", inline=False)
+
+    percentage = round(((total_members - member_number) / (total_members - 1)) * 100, 1) if total_members > 1 else 0
+    embed.add_field(
+        name="Early Bird Percentage",
+        value=f"You joined earlier than {percentage}% of members",
+        inline=True,
+    )
+
+    # force a new line if no sponsor field will be added
+    status = bot_utils.get_sponsor_status(target_member)
+    if status is None:
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+    # --- Sponsor Info ---
+    if status is not None:
+        sponsor_type = "Monthly" if status["type"] == "subscription" else "One Time"
+        platforms_display = ", ".join(
+            f"{p['emoji']} [{p['name']}]({p['url']})" if p.get("url") else f"{p['emoji']} {p['name']}"
+            for p in status["platforms"]
+        )
+        embed.add_field(name="Sponsorship", value=f"{sponsor_type} sponsor ({platforms_display})", inline=False)
+
+    # --- OS Platform Info ---
+    os_roles = [guild.get_role(rid) for rid in ROLES_OS]
+    os_roles = [r for r in os_roles if r is not None and r in target_member.roles]
+    if os_roles:
+        platforms_value = ", ".join(f"{r.mention}" for r in os_roles)
+    else:
+        platforms_value = "None"
+    embed.add_field(name="Platform(s)", value=platforms_value, inline=True)
+
+    # --- Beta Tester Info ---
+    beta_tester_role = guild.get_role(ROLE_BETA_TESTER)
+    is_beta = beta_tester_role and beta_tester_role in target_member.roles
+    embed.add_field(name="Beta Tester", value="✅ Yes" if is_beta else "❌ No", inline=True)
+
+    if target_member.display_avatar:
+        embed.set_thumbnail(url=target_member.display_avatar.url)
+
+    embed.set_footer(text=f"{guild.name} • Server created on {guild.created_at.strftime('%B %d, %Y')}")
+
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(
     name=enums.Command.DATEROLE, description=enums.Command.DATEROLE.description()
@@ -662,6 +737,243 @@ async def macro_autocomplete(
 
 
 tree.add_command(macros_group)
+
+sponsor_group = discord_command.Group(
+    name=enums.Command.SPONSOR,
+    description=enums.Command.SPONSOR.description(),
+)
+
+
+platform_group = discord_command.Group(
+    name=enums.Command.SPONSOR_PLATFORM,
+    description=enums.Command.SPONSOR_PLATFORM.description(),
+    parent=sponsor_group,
+)
+
+
+@platform_group.command(
+    name=enums.Command.SPONSOR_PLATFORM_ADD,
+    description=enums.Command.SPONSOR_PLATFORM_ADD.description(),
+)
+async def sponsor_platform_add(
+        interaction: discord.Interaction, name: str, emoji: str, role: discord.Role,  url: Optional[str] = None,
+):
+    guild_id = str(interaction.guild.id)
+
+    if not settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id):
+        settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORMS, (guild_id, {}))
+
+    if not settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id):
+        settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, (guild_id, {}))
+
+    platforms = settings.dget(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id)
+    platforms[name] = {"emoji": emoji, "url": url}
+    settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORMS, (guild_id, platforms))
+
+    role_map = settings.dget(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id)
+    role_map[str(role.id)] = name
+    settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, (guild_id, role_map))
+
+    await interaction.response.send_message(
+        f"Platform `{name}` set to {emoji} for {role.mention}"
+        + (f" ([Link]({url}))" if url else ""),
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions(roles=False),
+    )
+
+
+@platform_group.command(
+    name=enums.Command.SPONSOR_PLATFORM_EDIT,
+    description=enums.Command.SPONSOR_PLATFORM_EDIT.description(),
+)
+async def sponsor_platform_edit(
+    interaction: discord.Interaction,
+    name: str,
+    emoji: Optional[str] = None,
+    role: Optional[discord.Role] = None,
+    url: Optional[str] = None,
+):
+    guild_id = str(interaction.guild.id)
+
+    if not settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id):
+        return await interaction.response.send_message(
+            "No platforms configured", ephemeral=True
+        )
+
+    platforms = settings.dget(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id)
+    if name not in platforms:
+        return await interaction.response.send_message(
+            f"Platform `{name}` not found", ephemeral=True
+        )
+
+    if isinstance(platforms[name], str):  # legacy format migration
+        platforms[name] = {"emoji": platforms[name], "url": None}
+
+    if emoji:
+        platforms[name]["emoji"] = emoji
+    if url is not None:
+        platforms[name]["url"] = url  # allow clearing with empty string
+
+    settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORMS, (guild_id, platforms))
+
+    if role is not None:
+        if not settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id):
+            settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, (guild_id, {}))
+
+        role_map = settings.dget(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id)
+        for rid, plat in list(role_map.items()):
+            if plat == name:
+                del role_map[rid]
+        role_map[str(role.id)] = name
+        settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, (guild_id, role_map))
+
+    await interaction.response.send_message(
+        f"Platform `{name}` updated",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions(roles=False),
+    )
+
+
+@platform_group.command(
+    name=enums.Command.SPONSOR_PLATFORM_DELETE,
+    description=enums.Command.SPONSOR_PLATFORM_DELETE.description(),
+)
+async def sponsor_platform_delete(interaction: discord.Interaction, name: str):
+    guild_id = str(interaction.guild.id)
+
+    if not settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id):
+        return await interaction.response.send_message(
+            "No platforms configured", ephemeral=True
+        )
+
+    platforms = settings.dget(enums.SettingsKeys.SPONSOR_PLATFORMS, guild_id)
+    if name not in platforms:
+        return await interaction.response.send_message(
+            f"Platform `{name}` not found", ephemeral=True
+        )
+
+    del platforms[name]
+    settings.dadd(enums.SettingsKeys.SPONSOR_PLATFORMS, (guild_id, platforms))
+
+    if settings.dexists(enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id):
+        role_map = settings.dget(
+            enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, guild_id
+        )
+        to_del = [rid for rid, n in role_map.items() if n == name]
+        for rid in to_del:
+            del role_map[rid]
+        settings.dadd(
+            enums.SettingsKeys.SPONSOR_PLATFORM_ROLES, (guild_id, role_map)
+        )
+
+    await interaction.response.send_message(
+        f"Platform `{name}` deleted", ephemeral=True
+    )
+@platform_group.command(
+    name=enums.Command.SPONSOR_PLATFORM_LIST,
+    description=enums.Command.SPONSOR_PLATFORM_LIST.description(),
+)
+async def sponsor_platform_list(interaction: discord.Interaction):
+    overview = bot_utils.get_platform_overview(interaction.guild)
+    if overview is None:
+        return await interaction.response.send_message(
+            "No platforms configured", ephemeral=True
+        )
+    await interaction.response.send_message(
+        overview,
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions(roles=False),
+    )
+@sponsor_platform_edit.autocomplete("name")
+@sponsor_platform_delete.autocomplete("name")
+async def sponsor_platform_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[discord_command.Choice[str]]:
+    if current is None or current == "":
+        names = bot_utils.get_platform_names(interaction.guild)
+    else:
+        names = bot_utils.search_platforms(interaction.guild, current)
+    return [discord_command.Choice(name=n, value=n) for n in names][:25]
+
+
+@sponsor_group.command(
+    name=enums.Command.SPONSOR_SUBROLES,
+    description=enums.Command.SPONSOR_SUBROLES.description(),
+)
+async def sponsor_subroles(
+    interaction: discord.Interaction,
+    monthly_role: Optional[discord.Role],
+    normal_role: Optional[discord.Role],
+):
+    guild_id = str(interaction.guild.id)
+
+    if not settings.dexists(enums.SettingsKeys.SPONSOR_ROLES, guild_id):
+        settings.dadd(enums.SettingsKeys.SPONSOR_ROLES, (guild_id, {}))
+
+    roles_cfg = settings.dget(enums.SettingsKeys.SPONSOR_ROLES, guild_id)
+
+    if monthly_role:
+        roles_cfg["monthly"] = monthly_role.id
+    if normal_role:
+        roles_cfg["normal"] = normal_role.id
+
+    settings.dadd(enums.SettingsKeys.SPONSOR_ROLES, (guild_id, roles_cfg))
+
+    await interaction.response.send_message(
+        "Sponsor roles updated", ephemeral=True,
+        allowed_mentions=discord.AllowedMentions(roles=False),
+    )
+
+@sponsor_group.command(
+    name=enums.Command.SPONSOR_INFO,
+    description=enums.Command.SPONSOR_INFO.description(),
+)
+@discord_command.describe(member="Member to check (defaults to yourself)")
+async def sponsor_info(
+    interaction: discord.Interaction, member: Optional[discord.Member] = None
+):
+    target = member or interaction.user
+    status = bot_utils.get_sponsor_status(target)
+
+    if status is None:
+        return await interaction.response.send_message(
+            f"{target.mention} is not marked as a sponsor.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions(users=False),
+        )
+
+    sponsor_type = (
+        "Monthly" if status["type"] == "subscription" else "One Time"
+    )
+    platforms_display = ", ".join(
+        (f"{p['emoji']} [{p['name']}]({p['url']})" if p.get("url") else f"{p['emoji']} {p['name']}")
+        for p in status["platforms"]
+    )
+
+    await interaction.response.send_message(
+        f"{target.mention}: {sponsor_type} sponsor ({platforms_display})",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions(users=False),
+        suppress_embeds=True,
+    )
+@sponsor_group.command(
+    name=enums.Command.SPONSOR_LIST,
+    description=enums.Command.SPONSOR_LIST.description(),
+)
+async def sponsor_list(interaction: discord.Interaction):
+    overview = bot_utils.get_sponsor_list(interaction.guild)
+    if overview is None:
+        return await interaction.response.send_message(
+            "No sponsor roles configured", ephemeral=True
+        )
+    await interaction.response.send_message(
+        overview,
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions(users=False),
+    )
+
+tree.add_command(sponsor_group)
+
 
 
 @tree.command(

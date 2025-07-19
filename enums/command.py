@@ -18,6 +18,16 @@ class Command(StrEnum):
     MACROS_DELETE = "delete"
     AUTOLOG = "autolog"
     DATEROLE = "daterole"
+    INFO = "info"
+    SPONSOR = "sponsor"
+    SPONSOR_PLATFORM = "platform"
+    SPONSOR_PLATFORM_ADD = "add"
+    SPONSOR_PLATFORM_EDIT = "edit"
+    SPONSOR_PLATFORM_DELETE = "delete"
+    SPONSOR_PLATFORM_LIST = "list"
+    SPONSOR_SUBROLES = "subroles"
+    SPONSOR_INFO = "info"
+    SPONSOR_LIST = "list"
 
     def description(self) -> str:
         return {
@@ -37,4 +47,14 @@ class Command(StrEnum):
             self.MACROS_DELETE: "Deletes a macro.",
             self.AUTOLOG: "Automaticaly reply logs locations to a user asking for logs when his message match a regex.",
             self.DATEROLE: "Assign a role to all members who joined after a specific date.",
+            self.INFO: "Display join date and sponsorship info for a member.",
+            self.SPONSOR: "Manage sponsorship settings.",
+            self.SPONSOR_PLATFORM: "Manage sponsorship platforms.",
+            self.SPONSOR_PLATFORM_ADD: "Add a sponsorship platform and map its role.",
+            self.SPONSOR_PLATFORM_EDIT: "Edit a sponsorship platform mapping.",
+            self.SPONSOR_PLATFORM_DELETE: "Delete a sponsorship platform.",
+            self.SPONSOR_PLATFORM_LIST: "List all sponsorship platforms.",
+            self.SPONSOR_SUBROLES: "Configure roles for sponsors.",
+            self.SPONSOR_INFO: "Show the sponsorship information for a member.",
+            self.SPONSOR_LIST: "List all sponsors.",
         }[self]

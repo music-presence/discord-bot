@@ -10,6 +10,9 @@ def load_settings_database(version: int = 0) -> pickledb.PickleDB:
         enums.SettingsKeys.ROLES,
         enums.SettingsKeys.APPS,
         enums.SettingsKeys.USER_APPS,
+        enums.SettingsKeys.SPONSOR_PLATFORMS,
+        enums.SettingsKeys.SPONSOR_ROLES,
+        enums.SettingsKeys.SPONSOR_PLATFORM_ROLES,
     ]:
         if not settings.exists(key):
             settings.dcreate(key)
